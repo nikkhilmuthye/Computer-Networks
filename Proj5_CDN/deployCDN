@@ -1,0 +1,41 @@
+#!/bin/bash
+
+ec2_servers=( \
+"ec2-54-174-6-90.compute-1.amazonaws.com" \
+"ec2-54-149-9-25.us-west-2.compute.amazonaws.com" \
+"ec2-54-67-86-61.us-west-1.compute.amazonaws.com" \
+"ec2-54-72-167-104.eu-west-1.compute.amazonaws.com" \
+"ec2-54-93-182-67.eu-central-1.compute.amazonaws.com" \
+"ec2-54-169-146-226.ap-southeast-1.compute.amazonaws.com" \
+"ec2-54-65-104-220.ap-northeast-1.compute.amazonaws.com" \
+"ec2-54-66-212-131.ap-southeast-2.compute.amazonaws.com" \
+"ec2-54-94-156-232.sa-east-1.compute.amazonaws.com" )
+
+if [ $# -lt 10 ] || [ "$1" != "-p" ] || [ "$3" != "-o" ] || [ "$5" != "-n" ] || [ "$7" != "-u" ] || [ "$9" != "-i" ]
+then
+	echo "Usage is:"
+      	echo "./deployCDN -p <port> -o <origin> -n <name> -u <username> -i <keyfile>"
+fi
+
+port=$2
+origin=$4
+name=$6
+username=$8
+keyfile=${10}
+http_path=$(pwd) 
+
+tar -cvf dnsserver.tar.gz dnsserver/
+scp -i $keyfile dnsserver.tar.gz $username@cs5700cdnproject.ccs.neu.edu:~
+ssh -i $keyfile $username@cs5700cdnproject.ccs.neu.edu "tar -xvf dnsserver.tar.gz; rm -rf dnsserver.tar.gz; cd dnsserver; make"
+rm -rf dnsserver.tar.gz
+
+
+tar -cvf httpserver.tar.gz httpserver/
+
+for i in "${ec2_servers[@]}"
+do
+	scp -i $keyfile httpserver.tar.gz $username@$i:~
+	ssh -i $keyfile $username@$i "tar -xvf httpserver.tar.gz; rm -rf httpserver.tar.gz; cd httpserver; make"
+done 
+
+rm -rf httpserver.tar.gz

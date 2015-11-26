@@ -1,0 +1,170 @@
+
+------------------------------
+  DNS SERVER IMPLEMENTATION
+------------------------------
+
+  DATA STRUCTURES
+-------------------
+
+1. class DNSServer extending class ThreadingUDPServer
+   - Makes DNS server multithreaded.a
+2. class DNSHandler extending class BaseRequestHandler
+   - When multiple requests arrive for DNS server, they are deligated
+     to objects of class DNSHandler for each thread.
+3. Dictionary "dns_mappings" to maintain Replica server names and their IP address.
+4. Dictionary "client_mappings" to maintain client IP address and it's nearest
+   replica server.
+5. Dictionary "replica_time" to maintain mapping of Replica server IP and time
+   of last scamper request on that replica.
+6. List "scamper_ip" with clients IP for whom scamper needs to be run.
+
+
+
+  APPROACH
+------------
+
+1. DNS server program starts by checking if file "dns_mappings.txt" exists.
+2. "dns_mappings.txt" file maintains mappings between URL and corresponding IP
+   address. If the file does not exist, then program will get IP addresses
+   using dig command.
+3. Once DNS server is initiated then an object of DNSServer is created.
+4. For every DNS request packet, it is deligated to objects of class DNSHandler.
+5. For every DNS request packet, a new thread is created.
+6. Hence multi-threading ensures that all requests are handled as soon as
+   possible utilizing maximum resources.
+7. Program also creates new daemon thread which runs on "scamper_ip" list.
+8. For each new request, the request URL is checked in dictionary for the IP
+   address.
+9. If IP address is NOT found then IP of randomly selected replica server is used.
+10. An entry is made in "client_mapping" for key client IP with randomly selected replica IP.
+    Also client IP is added to "scamper_ip" list to run scamper.
+11. If IP address for replica is found in client_mappings then it is returned.
+12. Once program enters "run_forever" mode, daemon thread starts and iterates over "scamper_ip"
+    list. For each client in "scamper_ip" list, program needs to run scamper on each replica
+    server and calculate minimum average round trip time(RTT).
+13. The daemon thread selects a client IP from "scamper_ip" list. For each replica server,
+    creates a new thread to run scamper on replica server with client IP.
+14. Before running scamper, thread verifies if httpserver is already running on replica
+    server. Program also verifies if previous scamper request on current replica server
+    was run at least 1 second before current time. If not, then thread will sleep so
+    that we maintain 1 probe per second property for scamper.
+15. Scamper returns minimum, average and maximum RTT time. Our program only considers
+    average RTT.
+16. Each thread returns average RTT. After joining all threads, we iterate over result of
+    each thread and identify replica server with minimum average RTT and client is redirected
+    to this replica server for future requests.
+17. In this way, DNS server maintains mappings between clients and best replica server.
+
+
+  FEATURES IMPLEMENTED:
+------------------------------
+
+1. Handling DNS request.
+2. Active measurements with scamper.
+3. 1 probe per second for scamper.
+4. Multi-threading for input dig requests.
+5. Multi-threading for scamper requests and aggregating their results.
+6. Program doesn't consider inactive replica servers.
+
+
+  CHALLENGES FACED
+--------------------
+
+1. Parsing DNS queries.
+2. Implementing multi-threading for DNS server implementation.
+3. Implementing multi-threading for scamper requests on each replica server.
+4. Running commands on replica machines.
+
+
+ FUTURE IMPLEMENTATION:
+--------------------------
+
+1. We would implement Geo IP when the client comes first time with a request.
+
+ EVALUATION OF EFFECTIVENESS:
+------------------------------
+
+1. Correct dig request with proper port number and origin name - IP Address
+2. Incorrect port number and correct origin name - Time Out
+3. Correct port number and incorrect origin name = Time Out
+
+------------------------------
+  HTTP SERVER IMPLEMENTATION
+------------------------------
+
+
+  DATA STRUCTURES
+-------------------
+
+1. Cache Entry - Maintains all the fields to handle the Buffer Cache on the HTTP server.
+2. HTTP server Handler - Implements any incoming requests from the browser. 
+3. Buffer Cache - Maintains the buffer cache on the HTTP server. It maintains all the most
+		  recently used HTML page requests
+	key - URL to the HTML page
+	value - the cache entry corresponding to that URL.
+
+  APPROACH
+------------
+
+1. In this program, we will take in the Port Number and the Name of the Origin Server as the
+   input. If the command usage is incorrect, we throw in an error and ask the user to give the
+   appropriate usage.
+2. Once we have the Port Number and the name of the Origin Server, we will create a http server
+   using the HTTPServer command.
+3. We will bind the server to the port number we revcieved as the input.
+4. Upon recieving a request to a page, the http_server_handler will be called.
+5. In the handler class, we will first determine the content type of the request by looking at
+   the URL extension.
+6. We then make the complete URL by appending the origin server link to the relative link we
+   recieved in the request.
+7. Upon formation of the complete URL, we first check if that URL is present in the buffer
+   cache i.e. if this page was recently requested.
+8. If the page is present in the cache,we simply return the data present in the cache without 
+   requesting the origin server for the data.
+9. If the page is not present in the cache, we will initiate a urlopen on the URL and get the
+   data from the origin server.
+10.When we recieve a URL which is not in our cache, we make an entry into the buffer cache, so
+   that the next time any request arrives requesting the same page, we will return the data
+   from the cache. The content of this page would be compressed using the zlib compress command.
+   Due to this, more data can be stored on the buffer cache.
+11.If the cache is full i.e. the contents are about 10MB, then we perform a simple LRU eviction 
+   algorithm. In this, we will evict a cached entry which has been least recently requested.
+12.When a server shuts down or crashes, the buffer cache data would be written on the disk. This
+   will ensure that the server gets all it's caches contents back into the buffer cache.
+13.During write back, we first decompress the contents which were initially compressed and then
+   write it into a file. This file will be be tarred so as to not reduce the space on the disk
+   and also ensuring that the data contents on the disk are always below 10MB.
+14.When the server turns back up, we untar the files one by one and compress the html page 
+   contents and write it into the cache.
+
+
+  FEATURES IMPLEMENTED:
+------------------------------
+
+1. Handling various HTTP requests
+2. Implementation of Buffer Cache
+3. Implementation of LRU eviction algorithm
+4. Compression of Content in Cache
+5. Writing back onto the disk when a server goes down.
+6. Making tar files of for the content written back to save space.
+
+  CHALLENGES FACED
+--------------------
+
+1. We faced challanges to decide what all data needs to be maintained in the cache.
+2. Finding which page to be evicted. 
+3. Writing the cache contents on the disk when the server goes down and then converting
+   them into a .tar file.
+
+  FUTURE IMPLEMENTATIONS:
+-----------------------------
+1. If we had more time, I would have implemented LRU with a heuristic function. We have given
+   counts for each cached entry. We would apply Zipf's law to ensure that somehow we evict
+   the page which is least likely to be accessed.
+
+ EVALUATION OF EFFECTIVENESS:
+----------------------------------
+1. Correct port number and correct IP address with the correct relative path - Correct Data
+2. Incorrect port number and correct IP address with the correct relative path - Time Out
+3. Correct port number and incorrect IP addresss with the correct relative path - 404 Response
+4. Correct port number and correct IP address with the incorrect relative path - 404 Response

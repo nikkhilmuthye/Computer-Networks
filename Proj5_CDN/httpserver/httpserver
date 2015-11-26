@@ -1,0 +1,276 @@
+#!/usr/bin/python
+from BaseHTTPServer import BaseHTTPRequestHandler,HTTPServer
+import sys
+import urllib2
+import datetime
+import threading, thread
+import time, collections
+import os
+import zlib 
+import signal
+import tarfile
+
+PORT_NUMBER = 8080
+THRESHOLD = 10000000
+
+buffer_cache = collections.OrderedDict()
+total_content = 0
+exitFlag = 0
+origin = ''
+
+'''class myThread (threading.Thread):
+    def __init__(self, threadID, name, counter):
+        threading.Thread.__init__(self)
+        self.threadID = threadID
+        self.name = name
+        self.counter = counter
+    def run(self):
+
+def rrint_time(threadName, delay, counter):
+    while counter:
+        if exitFlag:
+            thread.exit()
+        time.sleep(delay)
+        counter -= 1
+'''
+
+#This class is used to represent the entry of a URL in the Buffer Cache.
+class cache_entry():
+    def __init__(self):
+        self.url = ''
+        self.data = ''
+	self.count = 1
+	self.content_type = ''
+    
+    #Implements conversion of String formatted date to a DateTime Object
+    def format_date (self, exp_date):
+        if exp_date == '-1':
+            return datetime.datetime.now()
+        date_object = datetime.datetime.strptime(exp_date, '%a, %d %b %Y %H:%M:%S %Z')
+        return date_object
+    
+    #Implements assigning of values to a Cache Entry Object after creation
+    def assign (self, url, data, content_type):
+	if (url == '/'):
+	    url = "/index"
+        self.url = url
+        self.data = zlib.compress(data)
+	self.content_type = content_type
+    
+    #Currently implements a simple LRU eviction algorithm
+    def evict_lru_entry(self):
+        global buffer_cache, total_content
+        buff_len = len(buffer_cache)
+        count = 0
+        complete_round = False
+        evict_obj = self
+        for key, value in buffer_cache.items():
+            evict_obj = value
+            total_content -= len(evict_obj.data)
+            del buffer_cache[evict_obj.url]
+            if (total_content + len(self.data) < THRESHOLD):
+                break
+        buffer_cache[self.url] = self
+        total_content += len(self.data)
+        
+    #On cache miss, this function opens a new URL after getting the data from
+    #the origin server
+    def open_new_url (self, handler_obj, URL, mimetype, rel_path):
+        global buffer_cache, total_content
+        html_content = ''
+        html_headers = ''
+
+        #Open the URL requested and send it
+        handler_obj.send_response(200)
+        handler_obj.send_header('Content-type',mimetype)
+        handler_obj.end_headers()
+                
+        html_content = urllib2.urlopen(URL).read()
+        html_headers = urllib2.urlopen(URL).info();
+        handler_obj.wfile.write(html_content)
+                
+
+        self.assign(rel_path, html_content,mimetype)
+        
+        if len(self.data) < THRESHOLD:
+            if (total_content + len(self.data)) < THRESHOLD:
+                total_content += len(self.data)#content_length
+                buffer_cache[URL] = self
+            else:
+                self.evict_lru_entry()
+    
+#This class will handles any incoming request from the browser 
+class http_server_handler(BaseHTTPRequestHandler):
+    
+    #Check the URL extension and set the right content type
+    def get_content_type(self):
+        content_type = 'text/html'
+        if self.path.endswith(".html") or self.path == '/':
+            content_type='text/html'
+        if self.path.endswith(".php"):
+            content_type='text/html'
+        if self.path.endswith(".ico"):
+            content_type='image/x-icon'
+        if self.path.endswith(".png"):
+            content_type='image/png'
+        if self.path.endswith(".jpg"):
+            content_type='image/jpg'
+        if self.path.endswith(".gif"):
+            content_type='image/gif'
+        if self.path.endswith(".js"):
+            content_type='application/javascript'
+        if self.path.endswith(".css"):
+            content_type='text/css'
+            
+        return content_type
+    
+    #Handles all the GET messages and checks whether there is a cache HIT or
+    #cache MISS
+    def do_GET(self):
+        global origin
+        global buffer_cache, total_content
+        cache_obj = cache_entry()
+        content_type='text/html'
+        #URL = 'http://david.choffnes.com/classes/cs4700fa14'+str(self.path)
+        #URL = origin+str(self.path)
+        URL = str('http://')+origin+str(':8080')+str(self.path)
+        try:
+            
+            content_type = self.get_content_type()
+            if URL in buffer_cache:
+                cache_obj = buffer_cache[URL]
+                del buffer_cache[URL]
+                #if cache_obj.expire_date > datetime.datetime.now():
+        	self.send_response(200)
+        	self.send_header('Content-type',content_type)
+        	self.end_headers()
+                buffer_cache[URL] = cache_obj
+		cache_obj.count += 1
+		uncomp_data = zlib.decompress(cache_obj.data)
+                self.wfile.write(uncomp_data)
+                return
+            
+            cache_obj.open_new_url(self, URL, content_type, self.path)
+            return
+   
+        except IOError:
+            self.send_error(404,'File Not Found: %s' % self.path)
+      
+      
+def write_back_to_disk():
+    global buffer_cache
+    src  = os.path.dirname(os.path.realpath(__file__))
+    dir_path = 'cached_entries'
+    
+    file_name = ''
+    entry = cache_entry()
+    #try:
+        #os.path.join(src, )
+    os.chdir(src)
+    if not (os.path.exists(dir_path)):
+    	os.mkdir(dir_path)
+    os.chdir(dir_path)
+    for entry in buffer_cache.items():
+        file= entry[1]
+        file_name = file.url[1:]
+        file_name = file_name.replace('/', '@')
+        #os.path.join(dir_path, file_name)
+        file = open (file_name, "w")
+        file.write(entry[1].url+"\n")
+        file.write(str(entry[1].count)+"\n")
+        file.write(entry[1].content_type+"\n")
+	uncomp_data = zlib.decompress(entry[1].data)
+        file.write(uncomp_data)
+        file.close()
+	tar = tarfile.open(file_name.strip() + ".tar.gz", "w:gz")
+	tar.add(file_name)
+	tar.close()
+	os.remove(file_name)
+
+def reteieve_cache ():
+    global buffer_cache
+    src  = os.path.dirname(os.path.realpath(__file__))
+    dir_path = 'cached_entries'
+    os.path.join(src, dir_path)
+    file_name = ''
+    url = ''
+    string_data = ''
+ 
+    if (os.path.exists(dir_path)):
+        os.chdir(dir_path)
+        for file in os.listdir(os.curdir):
+	    tar = tarfile.open(file, "r:gz")
+	    temp = file.split(".")
+	    tar_temp = temp[0] + ".tar.gz"
+	    tar.extract(temp[0])
+    	    entry = cache_entry()
+            file_name = temp[0] 
+            url = file_name.replace('@', '/')
+	    if (url == "index"):
+		url = ''
+            url = str('http://')+origin+str(':8080/')+url
+            os.path.join(src, file_name)
+            file = open (file_name, "r")
+            
+            data = file.readline()
+	    rel_url = data.strip()
+            data = file.readline()
+	    count = data.strip()
+            data = file.readline()
+	    content_type = data.strip()
+	    #for data in file:
+	    while True:
+		temp = file.readline()
+            	string_data += temp #''.join(data[1:]) 
+		if not temp:
+		    break
+	    entry.assign(rel_url, string_data, content_type)
+	    buffer_cache[url] = entry 
+	    os.remove(file_name)
+	    os.remove(tar_temp)
+        os.chdir(src)
+	os.rmdir(dir_path)
+
+def signal_handler(signal, frame):
+	write_back_to_disk()
+        try:
+            http_server.shutdown()
+            http_server.socket.close()
+        except Exception:
+            error = True
+        finally:
+            sys.exit(0)
+
+def main():
+    global origin
+    port = 0
+    if len(sys.argv) == 5:
+        if sys.argv[1] == '-p' and sys.argv[3] == '-o':
+            port = int(sys.argv[2])
+            origin = sys.argv[4]
+    else:
+        print 'Incorrect Usage'
+        print 'Usage:'
+        print './httpserver -p <port> -o <origin>'
+        print 'Exiting the program...'
+        exit()
+    try:
+        #Create a web server and define the handler to manage the incoming request
+        http_server = HTTPServer(('', port), http_server_handler)
+        
+        reteieve_cache()
+        signal.signal(signal.SIGINT, signal_handler)  
+
+        #Wait forever for incoming htto requests
+        http_server.serve_forever()
+    except KeyboardInterrupt:
+        write_back_to_disk()
+        http_server.shutdown()
+        http_server.socket.close()
+        exit()
+            
+if __name__ == '__main__':
+    main()
+
+
+

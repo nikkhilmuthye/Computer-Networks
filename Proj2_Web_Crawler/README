@@ -1,0 +1,40 @@
+
+
+  APPROACH
+-------------
+
+1. ./webcrawler bash script accepts input parameters and passes it to java object file.
+2. Java code will parse the input and use them to login into fakebook website.
+3. Program will first estabilsh Socket connection with server and send an HTTP GET
+   request to server and read the response from server.
+4. Now program will extract username and password field name parameters from HTML page
+   by parsing it with JSoup library.
+5. These parameters will be sent to server in next POST request.
+6. Once login details are validated by server in POST request, program will start
+   crawling from user's homepage.
+7. Program will extract all the valid links from crawled HTML page.
+8. For each HTML page, program will parse page to check for secret flag. If secret flag
+   is identified, it will be printed to stdout.
+9. If the server returns 301 as status code, then program will extract the redirection
+   link and add it to the list of pages to be crawled.
+10.If the server returns 403 or 404 as status code, then program will ignore the link.
+11.If the server returns 500 as status code, then program will resend the GET request
+   to server for the same link and try to read page.
+12.The program will continue to run until, it identifies all the 5 flags or all the links
+   in the list are visited.
+
+
+
+  CHALLENGES FACED
+---------------------
+
+1. Login using POST request.
+2. Maintaining a persistent connection using single socket.
+3. Handling chunked data in html page.
+
+
+
+  TESTING
+-----------
+
+1. Invalid/Valid username and password.

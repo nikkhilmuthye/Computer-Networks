@@ -1,0 +1,23 @@
+#!/bin/bash
+
+
+Mapping_file="/course/cs5700f14/ec2-hosts.txt"
+DNS_Mapping="dns_mappings.txt"
+
+if [ ! -f $DNS_Mapping ] 
+then
+   while read p; do
+      if [[ $p != *NOTE* ]] && [[ $p != *"Origin server"* ]]
+      then
+	 IFS="	"; declare -a Array=($p)
+	 server=${Array[0]}
+	 ip=`dig +short $server | head -1`
+	 printf '%s\t%s\n' $server $ip >> $DNS_Mapping
+      fi
+   done < $Mapping_file
+fi
+
+host_ip=`dig +short cs5700cdnproject.ccs.neu.edu | head -1`
+host="cs5700cdnproject.ccs.neu.edu"
+
+python dnsserver.py $@ $host_ip $DNS_Mapping
